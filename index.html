@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SciENcv Migration Tool - Convert Biosketches for NIH</title>
+    <meta name="description" content="Free tool to convert existing NIH biosketches to SciENcv-ready format. Handles Markdown formatting, character limits, and generates Other Support XML.">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .copy-btn:hover { transform: scale(1.05); }
+        .section-content { transition: max-height 0.3s ease-out; }
+        pre { tab-size: 4; }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
+    <div class="max-w-4xl mx-auto p-4 py-8">
+        <!-- Header -->
+        <div class="text-center mb-6">
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">🔬 SciENcv Migration Tool</h1>
+            <p class="text-gray-600">Convert existing biosketches to SciENcv-ready format</p>
+            <p class="text-sm text-gray-500 mt-1">For the January 25, 2026 NIH Common Forms requirement</p>
+        </div>
+
+        <!-- Info Banner -->
+        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+            <div class="flex gap-3">
+                <span class="text-xl">ℹ️</span>
+                <div class="text-sm text-blue-800">
+                    <p class="font-medium mb-1">Why this tool exists:</p>
+                    <p>SciENcv <strong>cannot import biosketch XML</strong> – only Current & Pending docs accept XML upload. 
+                    This tool formats your text for copy-paste, handling the tricky Markdown quirks 
+                    (like needing <strong>two trailing spaces</strong> for line breaks in Contributions).</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="flex gap-2 mb-4">
+            <button id="tab-convert" onclick="switchTab('convert')" 
+                class="tab-btn px-4 py-2 rounded-lg font-medium transition-colors bg-indigo-600 text-white">
+                📄 Convert Biosketch
+            </button>
+            <button id="tab-othersupport" onclick="switchTab('othersupport')" 
+                class="tab-btn px-4 py-2 rounded-lg font-medium transition-colors bg-white text-gray-600 hover:bg-gray-50">
+                📥 Other Support XML
+            </button>
+            <button id="tab-help" onclick="switchTab('help')" 
+                class="tab-btn px-4 py-2 rounded-lg font-medium transition-colors bg-white text-gray-600 hover:bg-gray-50">
+                ❓ Help
+            </button>
+        </div>
+
+        <!-- Convert Tab -->
+        <div id="panel-convert" class="tab-panel space-y-4">
+            <!-- Input Area -->
+            <div class="bg-white rounded-xl shadow-sm p-6">
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    Paste your existing biosketch text:
+                </label>
+                <textarea id="input-text" 
+                    placeholder="Paste your NIH biosketch content here...
+
+The tool will automatically detect sections like:
+• A. Personal Statement
+• B. Positions and Honors  
+• C. Contribution to Science
+• D. Research Support
+
+Tip: Copy from Word, PDF, or any text source."
+                    class="w-full h-64 p-4 border border-gray-200 rounded-lg font-mono text-sm resize-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"></textarea>
+                <div class="flex justify-between items-center mt-3">
+                    <div id="input-char-count" class="text-sm text-gray-500">0 characters</div>
+                    <div class="flex gap-2">
+                        <button onclick="clearInput()" 
+                            class="px-4 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors">
+                            Clear
+                        </button>
+                        <button onclick="convertBiosketch()" 
+                            class="px-6 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors">
+                            Convert for SciENcv →
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Output Sections -->
+            <div id="output-container" class="space-y-4 hidden">
+                <div class="flex justify-between items-center">
+                    <h2 class="text-xl font-semibold text-gray-800">Converted Sections</h2>
+                    <button onclick="copyAll()" class="text-sm text-indigo-600 hover:underline">
+                        Copy all sections
+                    </button>
+                </div>
+                <p class="text-sm text-gray-600">
+                    Copy each section below and paste into the corresponding SciENcv field.
+                    Line breaks and formatting have been adjusted for SciENcv compatibility.
+                </p>
+                <div id="sections-list"></div>
+            </div>
+        </div>
+
+        <!-- Other Support XML Tab -->
+        <div id="panel-othersupport" class="tab-panel space-y-4 hidden">
+            <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+                <p class="text-sm text-green-800">
+                    <strong>✓ Good news!</strong> Unlike biosketches, Other Support documents 
+                    <strong>CAN be uploaded as XML</strong> directly to SciENcv.
+                </p>
+            </div>
+
+            <div id="other-support-entries"></div>
+
+            <div class="flex gap-4">
+                <button onclick="addOtherSupportEntry()" 
+                    class="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
+                    + Add Another Project
+                </button>
+                <button onclick="downloadXML()" 
+                    class="px-6 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors">
+                    📥 Download XML for SciENcv
+                </button>
+            </div>
+
+            <p class="text-sm text-gray-500">
+                Upload the downloaded XML file to SciENcv by selecting "Upload an XML file" when creating 
+                a new Current and Pending (Other) Support document.
+            </p>
+        </div>
+
+        <!-- Help Tab -->
+        <div id="panel-help" class="tab-panel hidden">
+            <div class="bg-white rounded-xl shadow-sm p-6 space-y-6">
+                <div>
+                    <h3 class="font-semibold text-lg text-gray-800 mb-2">📋 Character Limits</h3>
+                    <table class="w-full text-sm">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="text-left p-2 rounded-tl-lg">Section</th>
+                                <th class="text-right p-2 rounded-tr-lg">Limit</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr class="border-t"><td class="p-2">Personal Statement</td><td class="text-right p-2">3,500</td></tr>
+                            <tr class="border-t"><td class="p-2">Each Contribution to Science</td><td class="text-right p-2">2,000</td></tr>
+                            <tr class="border-t"><td class="p-2">Overall Objectives (Other Support)</td><td class="text-right p-2">1,500</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div>
+                    <h3 class="font-semibold text-lg text-gray-800 mb-2">✍️ SciENcv Markdown</h3>
+                    <table class="w-full text-sm">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="text-left p-2">Format</th>
+                                <th class="text-left p-2">Syntax</th>
+                                <th class="text-left p-2">Result</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr class="border-t"><td class="p-2">Bold</td><td class="p-2 font-mono">**text**</td><td class="p-2"><strong>text</strong></td></tr>
+                            <tr class="border-t"><td class="p-2">Italic</td><td class="p-2 font-mono">*text*</td><td class="p-2"><em>text</em></td></tr>
+                            <tr class="border-t"><td class="p-2">Link</td><td class="p-2 font-mono">[text](url)</td><td class="p-2 text-blue-600 underline">text</td></tr>
+                            <tr class="border-t"><td class="p-2">Line break (Contributions)</td><td class="p-2 font-mono">two spaces + Enter</td><td class="p-2">New line</td></tr>
+                            <tr class="border-t"><td class="p-2">Line break (Personal Statement)</td><td class="p-2 font-mono">Enter key</td><td class="p-2">New line</td></tr>
+                        </tbody>
+                    </table>
+                    <p class="text-xs text-amber-600 mt-2">⚠️ Note: Line break behavior differs by section! This tool handles it automatically.</p>
+                </div>
+
+                <div>
+                    <h3 class="font-semibold text-lg text-gray-800 mb-2">🔄 XML Capabilities</h3>
+                    <table class="w-full text-sm">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="text-left p-2">Document Type</th>
+                                <th class="text-center p-2">Export XML</th>
+                                <th class="text-center p-2">Import XML</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr class="border-t">
+                                <td class="p-2">Biosketches</td>
+                                <td class="text-center p-2">✅</td>
+                                <td class="text-center p-2">❌</td>
+                            </tr>
+                            <tr class="border-t">
+                                <td class="p-2">Current & Pending Support</td>
+                                <td class="text-center p-2">✅</td>
+                                <td class="text-center p-2">✅</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div>
+                    <h3 class="font-semibold text-lg text-gray-800 mb-2">💡 Tips</h3>
+                    <ul class="text-sm text-gray-700 space-y-2">
+                        <li>• <strong>First migration is hardest</strong> – once you have one biosketch in SciENcv, you can copy sections between documents</li>
+                        <li>• <strong>Long-term strategy:</strong> Populate ORCID → Link to My NCBI → Use as external source in SciENcv</li>
+                        <li>• <strong>Deadline:</strong> January 25, 2026 – NIH requires SciENcv Common Forms for all new submissions</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="text-center mt-8 text-sm text-gray-500">
+            <p>Built to help researchers navigate the NIH Common Forms requirement.</p>
+            <p class="mt-1">
+                <a href="https://github.com" class="text-indigo-600 hover:underline">View source on GitHub</a> · 
+                <a href="https://www.ncbi.nlm.nih.gov/sciencv/" class="text-indigo-600 hover:underline" target="_blank">Go to SciENcv</a>
+            </p>
+        </div>
+    </div>
+
+    <script>
+        // Character limits
+        const CHAR_LIMITS = {
+            personal_statement: 3500,
+            contribution: 2000,
+            overall_objectives: 1500
+        };
+
+        // Section patterns
+        const SECTION_PATTERNS = [
+            { name: 'personal_statement', pattern: /(?:A\.\s*)?Personal\s*Statement/i, title: 'Personal Statement' },
+            { name: 'positions', pattern: /(?:B\.\s*)?Positions|Appointments/i, title: 'Positions and Honors' },
+            { name: 'contributions', pattern: /(?:C\.\s*)?Contribution[s]?\s*to\s*Science/i, title: 'Contributions to Science' },
+            { name: 'research_support', pattern: /(?:D\.\s*)?(?:Research|Other)\s*Support/i, title: 'Research Support' }
+        ];
+
+        let sections = [];
+        let otherSupportEntries = [createEmptyEntry()];
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('input-text').addEventListener('input', updateCharCount);
+            renderOtherSupportEntries();
+        });
+
+        function updateCharCount() {
+            const count = document.getElementById('input-text').value.length;
+            document.getElementById('input-char-count').textContent = `${count.toLocaleString()} characters`;
+        }
+
+        function switchTab(tab) {
+            // Update buttons
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('bg-indigo-600', 'text-white');
+                btn.classList.add('bg-white', 'text-gray-600');
+            });
+            document.getElementById(`tab-${tab}`).classList.remove('bg-white', 'text-gray-600');
+            document.getElementById(`tab-${tab}`).classList.add('bg-indigo-600', 'text-white');
+
+            // Update panels
+            document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.add('hidden'));
+            document.getElementById(`panel-${tab}`).classList.remove('hidden');
+        }
+
+        function clearInput() {
+            document.getElementById('input-text').value = '';
+            document.getElementById('output-container').classList.add('hidden');
+            updateCharCount();
+        }
+
+        function convertBiosketch() {
+            const text = document.getElementById('input-text').value;
+            if (!text.trim()) return;
+
+            sections = parseBiosketch(text);
+            renderSections();
+            document.getElementById('output-container').classList.remove('hidden');
+        }
+
+        function parseBiosketch(text) {
+            const results = [];
+            
+            // Find section positions
+            const sectionPositions = [];
+            for (const sec of SECTION_PATTERNS) {
+                const match = text.match(sec.pattern);
+                if (match) {
+                    sectionPositions.push({ ...sec, position: match.index });
+                }
+            }
+            
+            // Sort by position
+            sectionPositions.sort((a, b) => a.position - b.position);
+            
+            // Extract content
+            for (let i = 0; i < sectionPositions.length; i++) {
+                const current = sectionPositions[i];
+                const nextPos = i + 1 < sectionPositions.length 
+                    ? sectionPositions[i + 1].position 
+                    : text.length;
+                
+                let content = text.slice(current.position, nextPos).trim();
+                
+                // Remove header
+                const headerMatch = content.match(current.pattern);
+                if (headerMatch) {
+                    content = content.slice(headerMatch[0].length).trim();
+                }
+                
+                if (current.name === 'contributions') {
+                    // Parse individual contributions
+                    const contribs = parseContributions(content);
+                    contribs.forEach((contrib, idx) => {
+                        results.push({
+                            id: `contrib-${idx}`,
+                            title: `Contribution ${idx + 1}`,
+                            type: 'contribution',
+                            content: contrib,
+                            charLimit: CHAR_LIMITS.contribution
+                        });
+                    });
+                } else if (current.name === 'personal_statement') {
+                    results.push({
+                        id: 'personal-statement',
+                        title: 'Personal Statement',
+                        type: 'personal_statement',
+                        content: content,
+                        charLimit: CHAR_LIMITS.personal_statement
+                    });
+                } else {
+                    results.push({
+                        id: current.name,
+                        title: current.title,
+                        type: current.name,
+                        content: content
+                    });
+                }
+            }
+            
+            // If no sections found, treat as raw text
+            if (results.length === 0 && text.trim()) {
+                results.push({
+                    id: 'raw-text',
+                    title: 'Pasted Content',
+                    type: 'raw',
+                    content: text.trim()
+                });
+            }
+            
+            return results;
+        }
+
+        function parseContributions(content) {
+            const contributions = [];
+            
+            // Split by numbered patterns
+            const splits = content.split(/(?:\n|^)\s*(?:(?:\d+[.)]\s*)|(?:\(\d+\)\s*)|(?:Contribution\s*\d+[:\s]*))/i);
+            
+            for (const split of splits) {
+                const trimmed = split.trim();
+                if (trimmed && trimmed.length > 50) {
+                    contributions.push(trimmed);
+                }
+            }
+            
+            return contributions.length > 0 ? contributions : [content];
+        }
+
+        function convertToMarkdown(text, sectionType) {
+            let result = text;
+            
+            // For contributions, add two trailing spaces for line breaks
+            if (sectionType === 'contribution') {
+                const lines = result.split('\n');
+                result = lines.map((line, i) => {
+                    const trimmed = line.trimEnd();
+                    if (trimmed && i < lines.length - 1) {
+                        return trimmed + '  '; // Two spaces for line break
+                    }
+                    return trimmed;
+                }).join('\n');
+            }
+            
+            // Remove HTML tags
+            result = result.replace(/<[^>]+>/g, '');
+            
+            return result.trim();
+        }
+
+        function getCharCountHTML(count, limit) {
+            if (!limit) return `<span class="text-gray-500">${count.toLocaleString()} chars</span>`;
+            
+            const percentage = (count / limit) * 100;
+            const isOver = count > limit;
+            const isWarning = percentage > 80 && !isOver;
+            
+            let colorClass = 'text-gray-500';
+            let icon = '✓';
+            let extra = '';
+            
+            if (isOver) {
+                colorClass = 'text-red-600';
+                icon = '⚠️';
+                extra = ` <span class="font-medium">(reduce by ${(count - limit).toLocaleString()})</span>`;
+            } else if (isWarning) {
+                colorClass = 'text-amber-600';
+            }
+            
+            return `<span class="${colorClass}">${icon} ${count.toLocaleString()} / ${limit.toLocaleString()} chars${extra}</span>`;
+        }
+
+        function renderSections() {
+            const container = document.getElementById('sections-list');
+            container.innerHTML = '';
+            
+            sections.forEach((section, index) => {
+                const convertedContent = convertToMarkdown(section.content, section.type);
+                const charCountHTML = getCharCountHTML(convertedContent.length, section.charLimit);
+                
+                const div = document.createElement('div');
+                div.className = 'bg-white rounded-xl shadow-sm overflow-hidden mb-3';
+                div.innerHTML = `
+                    <div class="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50" onclick="toggleSection(${index})">
+                        <div class="flex items-center gap-3">
+                            <h3 class="font-semibold text-gray-800">${section.title}</h3>
+                            <div class="text-sm">${charCountHTML}</div>
+                        </div>
+                        <span id="toggle-${index}" class="text-gray-400">▼</span>
+                    </div>
+                    <div id="content-${index}" class="px-4 pb-4">
+                        <div class="relative">
+                            <pre class="bg-gray-50 p-4 rounded-lg text-sm font-mono whitespace-pre-wrap overflow-x-auto border border-gray-200 max-h-64 overflow-y-auto">${escapeHTML(convertedContent)}</pre>
+                            <button onclick="copySection(${index})" 
+                                class="copy-btn absolute top-2 right-2 p-2 bg-white rounded-lg shadow-sm border border-gray-200 hover:bg-gray-50 transition-all"
+                                title="Copy to clipboard">
+                                <span id="copy-icon-${index}">📋</span>
+                            </button>
+                        </div>
+                        ${section.type === 'contribution' ? '<p class="text-xs text-gray-500 mt-2">ℹ️ Two trailing spaces added to each line for proper line breaks in SciENcv</p>' : ''}
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function toggleSection(index) {
+            const content = document.getElementById(`content-${index}`);
+            const toggle = document.getElementById(`toggle-${index}`);
+            
+            if (content.classList.contains('hidden')) {
+                content.classList.remove('hidden');
+                toggle.textContent = '▼';
+            } else {
+                content.classList.add('hidden');
+                toggle.textContent = '▶';
+            }
+        }
+
+        async function copySection(index) {
+            const section = sections[index];
+            const content = convertToMarkdown(section.content, section.type);
+            
+            await navigator.clipboard.writeText(content);
+            
+            const icon = document.getElementById(`copy-icon-${index}`);
+            icon.textContent = '✓';
+            setTimeout(() => { icon.textContent = '📋'; }, 2000);
+        }
+
+        async function copyAll() {
+            const allContent = sections.map(s => {
+                return `=== ${s.title} ===\n\n${convertToMarkdown(s.content, s.type)}`;
+            }).join('\n\n\n');
+            
+            await navigator.clipboard.writeText(allContent);
+            alert('All sections copied to clipboard!');
+        }
+
+        function escapeHTML(str) {
+            return str.replace(/&/g, '&amp;')
+                      .replace(/</g, '&lt;')
+                      .replace(/>/g, '&gt;')
+                      .replace(/"/g, '&quot;');
+        }
+
+        // Other Support functions
+        function createEmptyEntry() {
+            return {
+                title: '',
+                status: 'active',
+                sponsor: '',
+                awardNumber: '',
+                startDate: '',
+                endDate: '',
+                personMonths: '',
+                objectives: '',
+                piName: ''
+            };
+        }
+
+        function renderOtherSupportEntries() {
+            const container = document.getElementById('other-support-entries');
+            container.innerHTML = '';
+            
+            otherSupportEntries.forEach((entry, index) => {
+                const div = document.createElement('div');
+                div.className = 'bg-white rounded-xl shadow-sm p-6 mb-4';
+                div.innerHTML = `
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="font-semibold text-gray-800">Project/Award ${index + 1}</h3>
+                        ${otherSupportEntries.length > 1 ? `<button onclick="removeOtherSupportEntry(${index})" class="text-red-600 text-sm hover:underline">Remove</button>` : ''}
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="col-span-2">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Project Title *</label>
+                            <input type="text" id="os-title-${index}" value="${escapeHTML(entry.title)}" 
+                                onchange="updateEntry(${index}, 'title', this.value)"
+                                class="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                                placeholder="e.g., MicroRNA therapeutics for heart failure">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Status *</label>
+                            <select id="os-status-${index}" onchange="updateEntry(${index}, 'status', this.value)"
+                                class="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500">
+                                <option value="active" ${entry.status === 'active' ? 'selected' : ''}>Active</option>
+                                <option value="pending" ${entry.status === 'pending' ? 'selected' : ''}>Pending</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Sponsor *</label>
+                            <input type="text" id="os-sponsor-${index}" value="${escapeHTML(entry.sponsor)}"
+                                onchange="updateEntry(${index}, 'sponsor', this.value)"
+                                class="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                                placeholder="e.g., NIH/NHLBI">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Award Number</label>
+                            <input type="text" id="os-award-${index}" value="${escapeHTML(entry.awardNumber)}"
+                                onchange="updateEntry(${index}, 'awardNumber', this.value)"
+                                class="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                                placeholder="e.g., R01 HL123456">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">PI Name</label>
+                            <input type="text" id="os-pi-${index}" value="${escapeHTML(entry.piName)}"
+                                onchange="updateEntry(${index}, 'piName', this.value)"
+                                class="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                                placeholder="e.g., John Smith, PhD">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+                            <input type="date" id="os-start-${index}" value="${entry.startDate}"
+                                onchange="updateEntry(${index}, 'startDate', this.value)"
+                                class="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+                            <input type="date" id="os-end-${index}" value="${entry.endDate}"
+                                onchange="updateEntry(${index}, 'endDate', this.value)"
+                                class="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Person Months</label>
+                            <input type="number" step="0.1" id="os-months-${index}" value="${entry.personMonths}"
+                                onchange="updateEntry(${index}, 'personMonths', this.value)"
+                                class="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                                placeholder="e.g., 3.6">
+                        </div>
+                        <div class="col-span-2">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">
+                                Overall Objectives * <span class="font-normal text-gray-500">(max 1,500 characters)</span>
+                            </label>
+                            <textarea id="os-objectives-${index}" 
+                                onchange="updateEntry(${index}, 'objectives', this.value)"
+                                oninput="updateObjectivesCount(${index})"
+                                class="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 h-24"
+                                placeholder="Brief description of project goals...">${escapeHTML(entry.objectives)}</textarea>
+                            <div id="os-count-${index}" class="text-sm text-gray-500 mt-1">${entry.objectives.length} / 1,500 chars</div>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function updateEntry(index, field, value) {
+            otherSupportEntries[index][field] = value;
+        }
+
+        function updateObjectivesCount(index) {
+            const textarea = document.getElementById(`os-objectives-${index}`);
+            const count = textarea.value.length;
+            const countDiv = document.getElementById(`os-count-${index}`);
+            
+            if (count > 1500) {
+                countDiv.innerHTML = `<span class="text-red-600">⚠️ ${count} / 1,500 chars (reduce by ${count - 1500})</span>`;
+            } else if (count > 1200) {
+                countDiv.innerHTML = `<span class="text-amber-600">${count} / 1,500 chars</span>`;
+            } else {
+                countDiv.textContent = `${count} / 1,500 chars`;
+            }
+            
+            otherSupportEntries[index].objectives = textarea.value;
+        }
+
+        function addOtherSupportEntry() {
+            otherSupportEntries.push(createEmptyEntry());
+            renderOtherSupportEntries();
+        }
+
+        function removeOtherSupportEntry(index) {
+            otherSupportEntries.splice(index, 1);
+            renderOtherSupportEntries();
+        }
+
+        function downloadXML() {
+            const entries = otherSupportEntries.filter(e => e.title);
+            if (entries.length === 0) {
+                alert('Please fill in at least one project title.');
+                return;
+            }
+            
+            let xml = `<?xml version="1.0" encoding="UTF-8"?>
+<sciencv xmlns="http://www.ncbi.nlm.nih.gov/sciencv">
+  <current-and-pending-support>`;
+            
+            for (const entry of entries) {
+                xml += `
+    <support>
+      <contributiontype>award</contributiontype>
+      <title>${escapeXML(entry.title)}</title>
+      <status>${entry.status}</status>
+      <sponsor>${escapeXML(entry.sponsor)}</sponsor>
+      ${entry.awardNumber ? `<awardnumber>${escapeXML(entry.awardNumber)}</awardnumber>` : ''}
+      ${entry.startDate ? `<startdate>${entry.startDate}</startdate>` : ''}
+      ${entry.endDate ? `<enddate>${entry.endDate}</enddate>` : ''}
+      ${entry.personMonths ? `<personmonths><year value="${new Date().getFullYear()}">${entry.personMonths}</year></personmonths>` : ''}
+      <overallobjectives>${escapeXML(entry.objectives.slice(0, 1500))}</overallobjectives>
+      ${entry.piName ? `<pi>${escapeXML(entry.piName)}</pi>` : ''}
+    </support>`;
+            }
+            
+            xml += `
+  </current-and-pending-support>
+</sciencv>`;
+            
+            const blob = new Blob([xml], { type: 'application/xml' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'other_support.xml';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function escapeXML(str) {
+            return str.replace(/&/g, '&amp;')
+                      .replace(/</g, '&lt;')
+                      .replace(/>/g, '&gt;')
+                      .replace(/"/g, '&quot;')
+                      .replace(/'/g, '&apos;');
+        }
+    </script>
+</body>
+</html>
