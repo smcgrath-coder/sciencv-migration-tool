@@ -30,6 +30,7 @@
                     <p>SciENcv <strong>cannot import biosketch XML</strong> – only Current & Pending docs accept XML upload. 
                     This tool formats your text for copy-paste, handling the tricky Markdown quirks 
                     (like needing <strong>two trailing spaces</strong> for line breaks in Contributions).</p>
+                    <p class="mt-2"><strong>Supports both NIH and NSF biosketch formats.</strong></p>
                 </div>
             </div>
         </div>
@@ -58,13 +59,11 @@
                     Paste your existing biosketch text:
                 </label>
                 <textarea id="input-text" 
-                    placeholder="Paste your NIH biosketch content here...
+                    placeholder="Paste your NIH or NSF biosketch content here...
 
 The tool will automatically detect sections like:
-• A. Personal Statement
-• B. Positions and Honors  
-• C. Contribution to Science
-• D. Research Support
+• NIH: A. Personal Statement, B. Positions, C. Contributions, D. Research Support
+• NSF: (a) Professional Preparation, (b) Appointments, (c) Publications, (d) Synergistic Activities
 
 Tip: Copy from Word, PDF, or any text source."
                     class="w-full h-64 p-4 border border-gray-200 rounded-lg font-mono text-sm resize-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"></textarea>
@@ -85,6 +84,12 @@ Tip: Copy from Word, PDF, or any text source."
 
             <!-- Output Sections -->
             <div id="output-container" class="space-y-4 hidden">
+                <!-- Debug Panel -->
+                <details class="bg-gray-100 rounded-lg p-3 text-sm">
+                    <summary class="cursor-pointer font-medium text-gray-700">🔍 Debug: What was detected? (click to expand)</summary>
+                    <div id="debug-output" class="mt-2 font-mono text-xs text-gray-600 whitespace-pre-wrap"></div>
+                </details>
+
                 <div class="flex justify-between items-center">
                     <h2 class="text-xl font-semibold text-gray-800">Converted Sections</h2>
                     <button onclick="copyAll()" class="text-sm text-indigo-600 hover:underline">
@@ -215,19 +220,38 @@ Tip: Copy from Word, PDF, or any text source."
     </div>
 
     <script>
-        // Character limits
+        // Character limits for NIH Common Forms
         const CHAR_LIMITS = {
             personal_statement: 3500,
             contribution: 2000,
-            overall_objectives: 1500
+            overall_objectives: 1500,
+            // These sections don't have strict limits but we can warn if very long
+            education: null,
+            positions: null,
+            synergistic: null,
+            honors: null
         };
 
-        // Section patterns
+        // Section patterns - handles both NIH and NSF formats
+        // Patterns must match section HEADERS, not words in regular text
         const SECTION_PATTERNS = [
-            { name: 'personal_statement', pattern: /(?:A\.\s*)?Personal\s*Statement/i, title: 'Personal Statement' },
-            { name: 'positions', pattern: /(?:B\.\s*)?Positions|Appointments/i, title: 'Positions and Honors' },
-            { name: 'contributions', pattern: /(?:C\.\s*)?Contribution[s]?\s*to\s*Science/i, title: 'Contributions to Science' },
-            { name: 'research_support', pattern: /(?:D\.\s*)?(?:Research|Other)\s*Support/i, title: 'Research Support' }
+            // Personal Statement (NIH) - must be at start of line
+            { name: 'personal_statement', pattern: /(?:^|\n)\s*(?:A\.?\s+)?Personal\s+Statement\s*(?:\n|$)/i, title: 'Personal Statement' },
+            
+            // Education/Professional Preparation - NSF uses "(a) Professional Preparation"
+            { name: 'education', pattern: /(?:^|\n)\s*\(a\)\s*Professional\s*Preparation/i, title: 'Education / Professional Preparation' },
+            
+            // Positions/Appointments - NSF uses "(b) Appointments", NIH uses "B. Positions"
+            { name: 'positions', pattern: /(?:^|\n)\s*(?:\(b\)\s*Appointments|B\.?\s+Positions\s*(?:and|&)?\s*(?:Honors|Employment)?)/i, title: 'Positions / Appointments' },
+            
+            // Publications/Contributions - NSF "(c) Five Publications...", NIH "C. Contributions"
+            { name: 'contributions', pattern: /(?:^|\n)\s*(?:\(c\)\s*(?:Five\s+)?Publications|C\.?\s+Contribution[s]?\s+to\s+Science)/i, title: 'Publications / Contributions' },
+            
+            // Synergistic Activities (NSF) / Research Support (NIH)
+            { name: 'synergistic', pattern: /(?:^|\n)\s*(?:\(d\)\s*Synergistic\s*Activities|D\.?\s+(?:Research|Other)\s+Support)/i, title: 'Synergistic Activities / Research Support' },
+            
+            // Honors (if present as separate section)
+            { name: 'honors', pattern: /(?:^|\n)\s*(?:\(e\)\s*|E\.?\s+)?Honors\s+(?:and\s+)?Awards/i, title: 'Honors and Awards' }
         ];
 
         let sections = [];
@@ -275,20 +299,36 @@ Tip: Copy from Word, PDF, or any text source."
 
         function parseBiosketch(text) {
             const results = [];
+            const debugInfo = [];
             
             // Find section positions
             const sectionPositions = [];
             for (const sec of SECTION_PATTERNS) {
                 const match = text.match(sec.pattern);
                 if (match) {
-                    sectionPositions.push({ ...sec, position: match.index });
+                    sectionPositions.push({ ...sec, position: match.index, matchedText: match[0] });
+                    debugInfo.push(`Found "${sec.title}" at position ${match.index} (matched: "${match[0].trim()}")`);
                 }
             }
             
             // Sort by position
             sectionPositions.sort((a, b) => a.position - b.position);
             
-            // Extract content
+            // Check for content before first section
+            if (sectionPositions.length > 0 && sectionPositions[0].position > 50) {
+                const preContent = text.slice(0, sectionPositions[0].position).trim();
+                if (preContent) {
+                    results.push({
+                        id: 'pre-content',
+                        title: 'Content Before Sections',
+                        type: 'raw',
+                        content: preContent
+                    });
+                    debugInfo.push(`Found ${preContent.length} chars before first section`);
+                }
+            }
+            
+            // Extract content for each section
             for (let i = 0; i < sectionPositions.length; i++) {
                 const current = sectionPositions[i];
                 const nextPos = i + 1 < sectionPositions.length 
@@ -296,25 +336,44 @@ Tip: Copy from Word, PDF, or any text source."
                     : text.length;
                 
                 let content = text.slice(current.position, nextPos).trim();
+                const originalLength = content.length;
                 
-                // Remove header
-                const headerMatch = content.match(current.pattern);
-                if (headerMatch) {
-                    content = content.slice(headerMatch[0].length).trim();
+                // Remove header more carefully - just the matched text
+                if (current.matchedText) {
+                    content = content.slice(current.matchedText.length).trim();
                 }
                 
+                debugInfo.push(`Section "${current.title}": ${originalLength} chars total, ${content.length} chars after header removal`);
+                
                 if (current.name === 'contributions') {
-                    // Parse individual contributions
-                    const contribs = parseContributions(content);
-                    contribs.forEach((contrib, idx) => {
-                        results.push({
-                            id: `contrib-${idx}`,
-                            title: `Contribution ${idx + 1}`,
-                            type: 'contribution',
-                            content: contrib,
-                            charLimit: CHAR_LIMITS.contribution
+                    // Check if this looks like NIH "Contributions to Science" (narratives with numbered items)
+                    // or NSF "Publications" (just a list of citations)
+                    const hasNarrativePattern = /\d+[.)]\s*[A-Z][a-z]+.*?(?:research|work|contribution|project|study)/i.test(content);
+                    const looksLikePublicationList = /^\s*\d+\.\s*[A-Z][a-z]+,/.test(content.trim());
+                    
+                    if (hasNarrativePattern && !looksLikePublicationList) {
+                        // NIH style - parse individual contributions
+                        const contribs = parseContributions(content);
+                        debugInfo.push(`  Split into ${contribs.length} contributions (NIH narrative style)`);
+                        contribs.forEach((contrib, idx) => {
+                            results.push({
+                                id: `contrib-${idx}`,
+                                title: `Contribution ${idx + 1}`,
+                                type: 'contribution',
+                                content: contrib,
+                                charLimit: CHAR_LIMITS.contribution
+                            });
                         });
-                    });
+                    } else {
+                        // NSF style - just a publication list, keep as single section
+                        debugInfo.push(`  Treating as publication list (NSF style)`);
+                        results.push({
+                            id: 'publications',
+                            title: current.title,
+                            type: 'publications',
+                            content: content
+                        });
+                    }
                 } else if (current.name === 'personal_statement') {
                     results.push({
                         id: 'personal-statement',
@@ -333,15 +392,20 @@ Tip: Copy from Word, PDF, or any text source."
                 }
             }
             
-            // If no sections found, treat as raw text
+            // If no sections found, treat entire text as one block
             if (results.length === 0 && text.trim()) {
+                debugInfo.push('No sections detected - returning entire text as single block');
                 results.push({
                     id: 'raw-text',
-                    title: 'Pasted Content',
+                    title: 'Full Biosketch (No Sections Detected)',
                     type: 'raw',
                     content: text.trim()
                 });
             }
+            
+            // Store debug info for display
+            window.lastParseDebug = debugInfo;
+            console.log('Parse debug:', debugInfo);
             
             return results;
         }
@@ -349,17 +413,29 @@ Tip: Copy from Word, PDF, or any text source."
         function parseContributions(content) {
             const contributions = [];
             
-            // Split by numbered patterns
-            const splits = content.split(/(?:\n|^)\s*(?:(?:\d+[.)]\s*)|(?:\(\d+\)\s*)|(?:Contribution\s*\d+[:\s]*))/i);
+            // Try multiple splitting strategies
+            // Strategy 1: Look for numbered items (1. or 1) or (1))
+            let splits = content.split(/(?:^|\n)\s*(?:\d+[.)]\s*|\(\d+\)\s*)/);
             
+            // If that didn't work well, try "Contribution X" pattern
+            if (splits.length <= 1) {
+                splits = content.split(/(?:^|\n)\s*Contribution\s*\d+[:\s]*/i);
+            }
+            
+            // Filter and clean
             for (const split of splits) {
                 const trimmed = split.trim();
-                if (trimmed && trimmed.length > 50) {
+                if (trimmed && trimmed.length > 20) {  // Reduced from 50 to catch more content
                     contributions.push(trimmed);
                 }
             }
             
-            return contributions.length > 0 ? contributions : [content];
+            // If no valid splits found, return the whole content as one contribution
+            if (contributions.length === 0 && content.trim()) {
+                return [content.trim()];
+            }
+            
+            return contributions;
         }
 
         function convertToMarkdown(text, sectionType) {
@@ -408,6 +484,17 @@ Tip: Copy from Word, PDF, or any text source."
         function renderSections() {
             const container = document.getElementById('sections-list');
             container.innerHTML = '';
+            
+            // Show debug info
+            const debugOutput = document.getElementById('debug-output');
+            if (window.lastParseDebug) {
+                debugOutput.textContent = window.lastParseDebug.join('\n');
+            }
+            
+            // Show total content summary
+            const totalInputChars = document.getElementById('input-text').value.length;
+            const totalOutputChars = sections.reduce((sum, s) => sum + s.content.length, 0);
+            debugOutput.textContent += `\n\nInput: ${totalInputChars} chars | Output: ${totalOutputChars} chars (${Math.round(totalOutputChars/totalInputChars*100)}% captured)`;
             
             sections.forEach((section, index) => {
                 const convertedContent = convertToMarkdown(section.content, section.type);
